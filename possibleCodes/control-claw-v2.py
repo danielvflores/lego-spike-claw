@@ -6,7 +6,7 @@ un programa liviano al hub que inicializa los motores y mantiene
 el proceso vivo, y luego permite control por teclado desde el PC.
 
 Requisitos en el PC:
- - Python 3.8+
+ - Python 3.9+
  - pybricksdev (pip install pybricksdev)
  - keyboard (pip install keyboard) -> En Windows requiere ejecutar el script como Administrador
 
