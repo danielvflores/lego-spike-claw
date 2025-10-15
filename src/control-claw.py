@@ -1,7 +1,7 @@
 import asyncio
 import keyboard
-from pybricksdev.ble import find_device
-from pybricksdev.connections.pybricks import PybricksHubBLE
+from pybricksdev.ble import find_device # type: ignore
+from pybricksdev.connections.pybricks import PybricksHubBLE # type: ignore
 
 # Programa que se ejecutará dentro del hub
 PROGRAM = """
