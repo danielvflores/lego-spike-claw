@@ -27,23 +27,58 @@ hub = PrimeHub()
 
 try:
     motorA = Motor(Port.A)
+    print("Motor A connected on port A")
 except:
+    print("Motor A not found on port A")
     motorA = None
 
 try:
     motorC = Motor(Port.C)
+    print("Motor C connected on port C")
 except:
+    print("Motor C not found on port C")
     motorC = None
 
 try:
     motorE = Motor(Port.E)
+    print("Motor E connected on port E")
 except:
+    print("Motor E not found on port E")
     motorE = None
 
-print('Hub listo para comandos remotos')
+print('Hub ready for remote commands')
+print('Motors initialized')
 
+# Initial motor tests
+if motorA:
+    print("Testing motor A...")
+    motorA.run(100)
+    wait(500)
+    motorA.stop()
+
+if motorC:
+    print("Testing motor C...")
+    motorC.run(100)
+    wait(500)
+    motorC.stop()
+
+if motorE:
+    print("Testing motor E...")
+    motorE.run(100)
+    wait(500)
+    motorE.stop()
+
+print("Tests completed. Ready for remote control.")
+print("Hub keeping program active...")
+
+# Simple loop to keep the program running
+# Commands will arrive through write_line and execute directly
+count = 0
 while True:
-    wait(100)
+    count += 1
+    if count % 1000 == 0:
+        print("Hub active - waiting for commands...")
+    wait(10)
 """
 
 
@@ -82,28 +117,66 @@ def compute_drive_command(pressed):
 
 
 async def main():
-    print('Buscando hub BLE...')
+    print('🔍 Buscando hub BLE...')
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            print(f'📡 Intento {attempt + 1}/{max_retries} de conexión...')
+            device = await asyncio.wait_for(find_device(), timeout=30.0)
+            
+            if not device:
+                print('❌ No se encontró hub (timeout).')
+                if attempt < max_retries - 1:
+                    print('🔄 Reintentando en 5 segundos...')
+                    await asyncio.sleep(5)
+                    continue
+                else:
+                    return
+
+            print(f'📱 Dispositivo encontrado: {device.name}')
+            hub = PybricksHubBLE(device)
+
+            print('🔗 Intentando conectar al hub...')
+            await hub.connect()
+            print('✅ Conectado al hub exitosamente')
+            break
+            
+        except asyncio.TimeoutError:
+            print(f'⏰ Timeout en intento {attempt + 1}')
+            if attempt < max_retries - 1:
+                print('🔄 Reintentando en 5 segundos...')
+                await asyncio.sleep(5)
+                continue
+            else:
+                print('❌ No se pudo conectar después de varios intentos')
+                return
+        except Exception as e:
+            print(f'❌ Error en intento {attempt + 1}: {e}')
+            if "Unreachable" in str(e) or "GATT" in str(e):
+                print('💡 Sugerencias:')
+                print('   🔹 Reinicia el hub SPIKE (mantén presionado 10 seg)')
+                print('   🔹 Cierra otras apps SPIKE/LEGO')
+                print('   🔹 Acerca el hub al PC')
+                
+            if attempt < max_retries - 1:
+                print('🔄 Reintentando en 10 segundos...')
+                await asyncio.sleep(10)
+                continue
+            else:
+                print('❌ No se pudo conectar después de varios intentos')
+                return
+
     try:
-        device = await asyncio.wait_for(find_device(), timeout=30.0)
-    except asyncio.TimeoutError:
-        print('No se encontró hub (timeout).')
-        return
-
-    print('Encontrado:', device.name)
-    hub = PybricksHubBLE(device)
-
-    try:
-        await hub.connect()
-        print('Conectado al hub')
-
         # subir programa
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as tf:
+        print('📤 Subiendo programa al hub...')
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tf:
             tf.write(PROGRAM)
             temp_path = tf.name
 
         try:
             await hub.run(temp_path, wait=False, print_output=True)
-            print('Programa ejecutándose en el hub')
+            print('🚀 Programa ejecutándose en el hub')
         finally:
             try:
                 os.unlink(temp_path)
@@ -129,8 +202,26 @@ async def main():
 
         keyboard.hook(hook)
 
-        print('Controles: W/A/S/D movimiento, Espacio cerrar garra, G abrir garra, R parar garra, ESC salir')
-        print('Ejecuta como Administrador en Windows si no detecta teclas')
+        print('🎮 CONTROLES DISPONIBLES:')
+        print('⬆️  W: Adelante')
+        print('⬇️  S: Atrás') 
+        print('⬅️  A: Izquierda')
+        print('➡️  D: Derecha')
+        print('🤏 Espacio: Cerrar garra')
+        print('✋ G: Abrir garra')
+        print('🛑 R: Parar garra')
+        print('🚪 ESC: Salir')
+        print('')
+        print('📋 COMBINACIONES:')
+        print('🔄 W+A: Adelante-Izquierda')
+        print('🔄 W+D: Adelante-Derecha')
+        print('🔄 S+A: Atrás-Izquierda')
+        print('🔄 S+D: Atrás-Derecha')
+        print('')
+        print('⚠️  IMPORTANTE: Ejecuta como Administrador en Windows si no detecta teclas')
+        print('')
+        print('🚀 ¡Control activo! Presiona las teclas para mover el robot.')
+        print('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 
         last_drive = None
         last_claw = None
@@ -144,7 +235,7 @@ async def main():
                     if 'esc' in pressed:
                         print('ESC detectado -> salir')
                         try:
-                            await hub.write_line('exit')
+                            await hub.write_line("eval('exit()')")
                         except:
                             pass
                         break
@@ -152,7 +243,7 @@ async def main():
                     # Determinar comando de movimiento
                     drive_cmd = compute_drive_command(pressed)
 
-                    # Mapear a código en hub
+                    # Crear código directo para ejecutar con eval
                     if drive_cmd == 'adelante':
                         drive_code = "motorA.run(300) if motorA else None; motorC.run(300) if motorC else None"
                     elif drive_cmd == 'atras':
@@ -169,14 +260,16 @@ async def main():
                         drive_code = "motorA.run(-150) if motorA else None; motorC.run(-300) if motorC else None"
                     elif drive_cmd == 'derecha_atras':
                         drive_code = "motorA.run(-300) if motorA else None; motorC.run(-150) if motorC else None"
-                    else:
+                    else:  # stop
                         drive_code = "motorA.stop() if motorA else None; motorC.stop() if motorC else None"
 
                     # Enviar solo si cambió
-                    if drive_code != last_drive:
+                    if drive_cmd != last_drive:
                         try:
-                            await hub.write_line(drive_code)
-                            last_drive = drive_code
+                            print(f'Enviando comando drive: {drive_cmd}')
+                            # Usar eval para ejecutar el código directamente
+                            await hub.write_line(f"eval('{drive_code}')")
+                            last_drive = drive_cmd
                             print('Drive ->', drive_cmd)
                         except Exception as e:
                             print('Error enviando drive:', e)
@@ -184,20 +277,22 @@ async def main():
                     # Manejo de garra: space = cerrar, g = abrir, r = stop garra
                     claw_cmd = None
                     if 'space' in pressed and 'g' not in pressed:
-                        claw_cmd = "motorE.run(-200) if motorE else None"
+                        claw_cmd = "cerrar"
+                        claw_code = "motorE.run(-200) if motorE else None"
                     elif 'g' in pressed and 'space' not in pressed:
-                        claw_cmd = "motorE.run(200) if motorE else None"
-                    elif 'r' in pressed:
-                        claw_cmd = "motorE.stop() if motorE else None"
+                        claw_cmd = "abrir"
+                        claw_code = "motorE.run(200) if motorE else None"
                     else:
                         # si no está presionada ni space ni g ni r -> stop garra
-                        claw_cmd = "motorE.stop() if motorE else None"
+                        claw_cmd = "stop"
+                        claw_code = "motorE.stop() if motorE else None"
 
                     if claw_cmd != last_claw:
                         try:
-                            await hub.write_line(claw_cmd)
+                            print(f'Enviando comando claw: {claw_cmd}')
+                            await hub.write_line(f"eval('{claw_code}')")
                             last_claw = claw_cmd
-                            print('Claw ->', 'cerrar' if claw_cmd.startswith('motorE.run(-') else ('abrir' if claw_cmd.startswith('motorE.run(2') else 'stop'))
+                            print('Claw ->', claw_cmd)
                         except Exception as e:
                             print('Error enviando claw:', e)
 
