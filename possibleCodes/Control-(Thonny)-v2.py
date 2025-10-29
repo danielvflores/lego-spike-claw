@@ -29,10 +29,16 @@ def create_program(drive_cmd, claw_cmd):
     }
 
     claw_commands = {
-        'cerrar': "motorE.run(200)",
-        'abrir': "motorE.run(-200)",
-        'stop': "motorE.stop()"
-    }
+        'cerrar': """
+    motorE.reset_angle(0)
+    motorE.run_target(200, 500)
+      """,
+        'abrir': """
+    motorE.reset_angle(0)
+    motorE.run_target(200, -500)
+      """, 
+      'stop': "motorE.stop()" 
+}
 
     drive_code = drive_commands.get(drive_cmd, "motorA.stop()\nmotorC.stop()")
     claw_code = claw_commands.get(claw_cmd, "motorE.stop()")
