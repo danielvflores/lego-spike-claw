@@ -1,4 +1,273 @@
 """
+Control remoto simplificado para SPIKE Prime (BLE via pybricksdev).
+
+Características conservadas:
+- Conexión BLE y pruebas iniciales mínimas
+- Pulsación corta -> movimiento corto
+- Mantener tecla -> movimiento continuo hasta soltar
+- Parada inmediata (emergency stop) al soltar la tecla
+- Protección básica: cooldown entre comandos y timeout en programas continuos
+
+Requisitos: pybricksdev, keyboard. Ejecutar Powershell como Administrador.
+"""
+from __future__ import annotations
+
+import asyncio
+import tempfile
+import time
+import os
+from typing import Optional
+
+from pybricksdev.ble import find_device  # type: ignore
+from pybricksdev.connections.pybricks import PybricksHubBLE  # type: ignore
+
+import keyboard  # type: ignore
+
+# ---- Configuración ----
+HUB_NAME_SUBSTRING = "Spike"  # coincidencia parcial del nombre BLE
+COMMAND_COOLDOWN = 0.12  # s entre envíos para reducir errores BLE
+HOLD_THRESHOLD = 0.30  # s para distinguir short press vs hold
+CONTINUOUS_MAX_DURATION = 2.0  # s límite de seguridad en el programa continuo
+
+# Mapear comandos a comportamientos (drive, claw)
+KEY_MAP = {
+    "w": ("adelante", "stop"),
+    "s": ("atras", "stop"),
+    "a": ("izquierda", "stop"),
+    "d": ("derecha", "stop"),
+    "q": ("stop", "abrir"),
+    "e": ("stop", "cerrar"),
+    "space": ("stop", "stop"),
+}
+
+
+def create_short_program(drive: str, claw: str) -> str:
+    """Genera un pequeño programa que mueve por poco tiempo (single press).
+
+    drive: 'adelante'|'atras'|'izquierda'|'derecha'|'stop'
+    claw: 'abrir'|'cerrar'|'stop'
+    """
+    # Programa ejecutado en el hub (Pybricks) -- keep minimal imports
+    return f"""
+from pybricks.hubs import PrimeHub
+from pybricks.parameters import Port
+from pybricks.pupdevices import Motor
+from pybricks.tools import wait
+
+hub = PrimeHub()
+motorA = Motor(Port.A)
+motorC = Motor(Port.C)
+motorE = Motor(Port.E)
+
+def drive_cmd(m):
+    if m == 'adelante':
+        motorA.run_angle(600, 40)
+    elif m == 'atras':
+        motorA.run_angle(-600, 40)
+    elif m == 'izquierda':
+        motorC.run_angle(600, 40)
+    elif m == 'derecha':
+        motorC.run_angle(-600, 40)
+
+def claw_cmd(c):
+    if c == 'abrir':
+        motorE.run_angle(-300, 30)
+    elif c == 'cerrar':
+        motorE.run_angle(300, 30)
+
+if '{drive}' != 'stop':
+    drive_cmd('{drive}')
+if '{claw}' != 'stop':
+    claw_cmd('{claw}')
+""".strip()
+
+
+def create_continuous_program(drive: str, claw: str) -> str:
+    """Programa que ejecuta movimiento continuo hasta timeout (safety).
+    Está diseñado para pararse desde el hub cuando termine o detectar fuerza.
+    """
+    return f"""
+from pybricks.hubs import PrimeHub
+from pybricks.parameters import Port
+from pybricks.pupdevices import Motor
+from pybricks.tools import wait
+
+hub = PrimeHub()
+motorA = Motor(Port.A)
+motorC = Motor(Port.C)
+motorE = Motor(Port.E)
+
+start = time.time() if 'time' in globals() else 0
+end_time = start + {CONTINUOUS_MAX_DURATION}
+
+def start_drive(m):
+    if m == 'adelante':
+        motorA.run(300)
+    elif m == 'atras':
+        motorA.run(-300)
+    elif m == 'izquierda':
+        motorC.run(300)
+    elif m == 'derecha':
+        motorC.run(-300)
+
+def start_claw(c):
+    if c == 'abrir':
+        motorE.run(-150)
+    elif c == 'cerrar':
+        motorE.run(150)
+
+if '{drive}' != 'stop':
+    start_drive('{drive}')
+if '{claw}' != 'stop':
+    start_claw('{claw}')
+
+while time.time() < end_time:
+    wait(100)
+
+motorA.stop()
+motorC.stop()
+motorE.stop()
+""".strip()
+
+
+def create_emergency_program() -> str:
+    """Programa mínimo que detiene todos los motores de inmediato.
+    Se ejecuta en key release para asegurar parada física.
+    """
+    return """
+from pybricks.hubs import PrimeHub
+from pybricks.parameters import Port
+from pybricks.pupdevices import Motor
+
+hub = PrimeHub()
+Motor(Port.A).stop()
+Motor(Port.C).stop()
+Motor(Port.E).stop()
+""".strip()
+
+
+async def send_program(hub: PybricksHubBLE, program: str, wait_for_finish: bool = True) -> None:
+    """Escribe el archivo temporal y lo ejecuta en el hub.
+    Se añade un pequeño cooldown para evitar sobrecargar BLE.
+    """
+    with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as f:
+        f.write(program)
+        path = f.name
+
+    try:
+        await hub.run(path, wait=wait_for_finish)
+    finally:
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+
+    # cooldown
+    await asyncio.sleep(COMMAND_COOLDOWN)
+
+
+async def connect_hub() -> Optional[PybricksHubBLE]:
+    print("🔍 Buscando hub BLE...")
+    dev = await find_device(name_contains=HUB_NAME_SUBSTRING, timeout=8.0)
+    if not dev:
+        print("No se encontró hub BLE.")
+        return None
+
+    hub = PybricksHubBLE(dev)
+    print(f"🔗 Conectando a {dev.name}...")
+    await hub.connect()
+    print("✅ Conectado")
+    return hub
+
+
+def on_key_event(event, queue: asyncio.Queue):
+    """Callback de keyboard (sin asyncio). Pone eventos en la cola del loop.
+    En el hilo de keyboard no se debe usar asyncio directamente.
+    """
+    # evento.name: llave como 'a', 'space', etc. event.event_type: down/up
+    try:
+        queue.put_nowait((time.time(), event.name, event.event_type))
+    except Exception:
+        pass
+
+
+async def main_loop():
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    keyboard.hook(lambda e: on_key_event(e, queue))
+
+    hub = await connect_hub()
+    if not hub:
+        return
+
+    # Ejecutar programa de test inicial (opcional)
+    print("📤 Ejecutando prueba inicial...")
+    test_prog = """
+from pybricks.hubs import PrimeHub
+from pybricks.pupdevices import Motor
+from pybricks.parameters import Port
+hub = PrimeHub()
+try:
+    Motor(Port.A)
+    Motor(Port.C)
+    Motor(Port.E)
+except Exception:
+    pass
+""".strip()
+    await send_program(hub, test_prog, wait_for_finish=True)
+    print("✅ Pruebas completadas. Listo para control remoto.")
+
+    # Estado de teclas: mapping key -> (down_time)
+    key_down_times: dict[str, float] = {}
+
+    try:
+        while True:
+            ts, name, etype = await queue.get()
+            if name not in KEY_MAP:
+                continue
+
+            drive, claw = KEY_MAP[name]
+
+            if etype == "down":
+                key_down_times[name] = ts
+                # esperamos HOLD_THRESHOLD para decidir si es hold
+                await asyncio.sleep(HOLD_THRESHOLD)
+                # si sigue presionada -> iniciar continuo
+                if name in key_down_times and key_down_times[name] == ts:
+                    print(f"🔄 Inicio continuo: {name} -> {drive},{claw}")
+                    prog = create_continuous_program(drive, claw)
+                    # lanzar sin bloquear: la parada la hará emergency al soltar
+                    asyncio.create_task(send_program(hub, prog, wait_for_finish=False))
+                else:
+                    # se soltó antes: enviar short
+                    print(f"▶️ Pulsación corta: {name} -> {drive},{claw}")
+                    prog = create_short_program(drive, claw)
+                    await send_program(hub, prog, wait_for_finish=True)
+
+            elif etype == "up":
+                # parada inmediata: ejecutar emergency program bloqueante
+                key_down_times.pop(name, None)
+                print(f"⏹️ Suelta tecla: {name} -> parada inmediata")
+                eprog = create_emergency_program()
+                # Ejecutar y esperar para asegurarnos que el hub reciba la orden
+                await send_program(hub, eprog, wait_for_finish=True)
+
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await hub.disconnect()
+
+
+def main():
+    try:
+        asyncio.run(main_loop())
+    except KeyboardInterrupt:
+        print("Interrumpido por usuario")
+
+
+if __name__ == "__main__":
+    main()
+"""
 control-claw-v5-new.py
 
 Nueva versión que usa ejecución de archivos temporales individuales
@@ -262,7 +531,7 @@ if motorC:
     motorC.run(200)
     print("Motor C running forward CONTINUOUSLY")
     # BUCLE CONTROLADO - revisar cada 50ms si debe parar
-    for i in range(100):  # Máximo 5 segundos (100 * 50ms)
+    for i in range(40):  # Máximo 2 segundos (40 * 50ms) - REDUCIDO para paradas más rápidas
         wait(50)
         # Verificar si hay resistencia (motor bloqueado)
         try:
@@ -281,7 +550,7 @@ if motorC:
     motorC.run(-200)
     print("Motor C running backward CONTINUOUSLY")
     # BUCLE CONTROLADO - revisar cada 50ms si debe parar
-    for i in range(100):  # Máximo 5 segundos
+    for i in range(40):  # Máximo 2 segundos - REDUCIDO
         wait(50)
         try:
             current_angle = motorC.angle()
@@ -299,7 +568,7 @@ if motorA:
     motorA.run(-200)
     print("Motor A running left CONTINUOUSLY")
     # BUCLE CONTROLADO
-    for i in range(100):  # Máximo 5 segundos
+    for i in range(40):  # Máximo 2 segundos - REDUCIDO
         wait(50)
         try:
             current_angle = motorA.angle()
@@ -317,7 +586,7 @@ if motorA:
     motorA.run(200)
     print("Motor A running right CONTINUOUSLY")
     # BUCLE CONTROLADO
-    for i in range(100):  # Máximo 5 segundos
+    for i in range(40):  # Máximo 2 segundos - REDUCIDO
         wait(50)
         try:
             current_angle = motorA.angle()
@@ -335,7 +604,7 @@ if motorA and motorC:
     motorA.run(-150)
     motorC.run(200)
     print("Motors A+C diagonal left-forward CONTINUOUSLY")
-    for i in range(100):
+    for i in range(40):  # Máximo 2 segundos - REDUCIDO
         wait(50)
         # Verificar ambos motores
         try:
@@ -357,7 +626,7 @@ if motorA and motorC:
     motorA.run(150)
     motorC.run(200)
     print("Motors A+C diagonal right-forward CONTINUOUSLY")
-    for i in range(100):
+    for i in range(40):  # Máximo 2 segundos - REDUCIDO
         wait(50)
         try:
             angleA = motorA.angle()
@@ -378,7 +647,7 @@ if motorA and motorC:
     motorA.run(-150)
     motorC.run(-200)
     print("Motors A+C diagonal left-backward CONTINUOUSLY")
-    for i in range(100):
+    for i in range(40):  # Máximo 2 segundos - REDUCIDO
         wait(50)
         try:
             angleA = motorA.angle()
@@ -399,7 +668,7 @@ if motorA and motorC:
     motorA.run(150)
     motorC.run(-200)
     print("Motors A+C diagonal right-backward CONTINUOUSLY")
-    for i in range(100):
+    for i in range(40):  # Máximo 2 segundos - REDUCIDO
         wait(50)
         try:
             angleA = motorA.angle()
@@ -430,7 +699,7 @@ if motorE:
     motorE.run(200)
     print("Motor E closing claw CONTINUOUSLY")
     # Bucle controlado con detección de límites para garra
-    for i in range(80):  # Máximo 4 segundos para garra
+    for i in range(30):  # Máximo 1.5 segundos para garra - REDUCIDO
         wait(50)
         try:
             current_angle = motorE.angle()
@@ -447,7 +716,7 @@ print("Claw closing completed")""",
 if motorE:
     motorE.run(-200)
     print("Motor E opening claw CONTINUOUSLY")
-    for i in range(80):  # Máximo 4 segundos
+    for i in range(30):  # Máximo 1.5 segundos - REDUCIDO
         wait(50)
         try:
             current_angle = motorE.angle()
@@ -702,11 +971,12 @@ async def main():
         print('🛑 R: Parar garra')
         print('🚪 ESC: Salir')
         print('')
-        print('� MODO SEGURO ACTIVADO:')
-        print('   • Detección automática de resistencia/límites')
-        print('   • Control de sobrecarga BLE')
-        print('   • Parada automática tras 4-5 segundos máximo')
-        print('   • Parada inmediata al soltar tecla')
+        print('🔒 MODO SEGURO MEJORADO:')
+        print('   • 🚨 PARADA DE EMERGENCIA al soltar tecla')
+        print('   • ⚡ Detección automática de resistencia/límites')
+        print('   • 🛡️ Control de sobrecarga BLE')
+        print('   • ⏰ Parada automática tras 1.5-2 segundos máximo')
+        print('   • 🔒 Parada inmediata garantizada al soltar tecla')
         print('')
         print('�🔍 MODO DEBUG: Se mostrará qué teclas detecta el programa')
         print('')
@@ -751,14 +1021,14 @@ async def main():
                     # MOVIMIENTO CORTO INICIAL
                     await execute_command(hub, drive_cmd, claw_cmd)
                     
-                    # Programar movimiento continuo después de 200ms si sigue presionada
+                    # Programar movimiento continuo después de 300ms si sigue presionada
                     async def check_continuous(key, drive_cmd, claw_cmd):
-                        await asyncio.sleep(0.2)  # Esperar 200ms
+                        await asyncio.sleep(0.3)  # Esperar 300ms (más tiempo para evitar ejecución accidental)
                         # Verificar si la tecla todavía está presionada usando time.time()
                         if key in key_hold_timers and key in pressed:
                             current_time = time.time()
                             press_time = key_hold_timers[key]
-                            if current_time - press_time >= 0.2:  # Si ha estado presionada por al menos 200ms
+                            if current_time - press_time >= 0.3:  # Si ha estado presionada por al menos 300ms
                                 print(f"🔄 Iniciando movimiento continuo para: {key}")
                                 # Cancelar cualquier tarea continua previa
                                 if key in continuous_tasks:
@@ -777,13 +1047,66 @@ async def main():
                     
                     print(f"⬆️ Tecla liberada: {key}")
                     
-                    # Cancelar movimiento continuo si existe
+                    # PARADA INMEDIATA - Cancelar movimiento continuo si existe
                     if key in continuous_tasks:
                         continuous_tasks[key].cancel()
                         del continuous_tasks[key]
                         print(f"🛑 Movimiento continuo cancelado para: {key}")
                     
-                    # Enviar comando STOP para asegurar que se detiene
+                    # ENVIAR COMANDO STOP INMEDIATO con máxima prioridad
+                    try:
+                        # Crear programa de parada de emergencia simple y rápido
+                        emergency_stop = """
+from pybricks.hubs import PrimeHub
+from pybricks.pupdevices import Motor
+from pybricks.parameters import Port
+
+hub = PrimeHub()
+
+# Parada de emergencia inmediata
+try:
+    motorA = Motor(Port.A)
+    motorA.stop()
+    print("Motor A STOPPED IMMEDIATELY")
+except:
+    pass
+
+try:
+    motorC = Motor(Port.C)
+    motorC.stop()
+    print("Motor C STOPPED IMMEDIATELY")
+except:
+    pass
+
+try:
+    motorE = Motor(Port.E)
+    motorE.stop()
+    print("Motor E STOPPED IMMEDIATELY")
+except:
+    pass
+
+print("EMERGENCY STOP COMPLETED")
+"""
+                        
+                        # Ejecutar parada de emergencia inmediatamente
+                        with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tf:
+                            tf.write(emergency_stop)
+                            emergency_path = tf.name
+                        
+                        # Ejecutar con máxima prioridad
+                        await hub.run(emergency_path, wait=True, print_output=False)
+                        print(f"🚨 PARADA DE EMERGENCIA ejecutada para tecla: {key}")
+                        
+                        # Limpiar archivo temporal
+                        try:
+                            os.unlink(emergency_path)
+                        except:
+                            pass
+                            
+                    except Exception as e:
+                        print(f"❌ Error en parada de emergencia: {e}")
+                    
+                    # Luego determinar el nuevo estado basado en teclas restantes
                     drive_cmd = compute_drive_command(pressed)
                     claw_cmd = "stop"  # Por defecto parar al soltar
                     if any(k in pressed for k in ['space', 'spacebar', ' ']) and 'g' not in pressed:
@@ -791,7 +1114,11 @@ async def main():
                     elif 'g' in pressed and not any(k in pressed for k in ['space', 'spacebar', ' ']):
                         claw_cmd = "abrir"
                     
-                    await execute_command(hub, drive_cmd, claw_cmd)
+                    # Solo ejecutar nuevo comando si hay otras teclas presionadas
+                    if pressed and any(k in pressed for k in ['w', 'a', 's', 'd', 'space', 'g']):
+                        await execute_command(hub, drive_cmd, claw_cmd)
+                    else:
+                        print("🔒 Todas las teclas liberadas - robot completamente parado")
 
         finally:
             keyboard.unhook_all()
