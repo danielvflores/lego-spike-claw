@@ -1,0 +1,14 @@
+# requirements.txt for lego-spike-claw
+# Use with a Python 3.12 virtualenv, e.g.:
+#   python312 -m venv .venv-py312
+#   . .venv-py312/bin/activate
+#   pip install -r requirements.txt
+# Notes:
+# - tkinter is provided by the system package (tk) on Arch; it's not a pip package.
+# - On Linux you may also need the system package 'python-evdev' (pacman) for gamepad access.
+
+pybricksdev
+inputs
+evdev
+bleak
+dbus-next
