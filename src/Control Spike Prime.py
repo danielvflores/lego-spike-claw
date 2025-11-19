@@ -38,10 +38,10 @@ def create_program(drive_cmd: str, claw_cmd: str) -> str:
     }
 
     claw_commands = {
-        'cerrar': "motorE.run(200, 1200)",
-        'abrir': "motorE.run(200, -1200)",
-        'cerrar_lento': "motorE.run(100, 250)",
-        'abrir_lento': "motorE.run(100, -250)",
+        'cerrar': "motorE.run_angle(200, 1200)",
+        'abrir': "motorE.run_angle(200, -1200)",
+        'cerrar_lento': "motorE.run_angle(100, 250)",
+        'abrir_lento': "motorE.run_angle(100, -250)",
         'stop': "motorE.stop()",
     }
 
