@@ -599,7 +599,7 @@ class LegoGUI:
         self._mk_hold_button(clawg, text='Abrir', key_on='z', row=0, col=1)
         self._mk_hold_button(clawg, text='Cerrar lento', key_on='m', row=1, col=0)
         self._mk_hold_button(clawg, text='Abrir lento', key_on='n', row=1, col=1)
-        ttk.Button(clawg, text='Parar garra', command=self.stop_claw).grid(row=2, column=0, columnspan=2, sticky='nsew', pady=(8, 0))
+        #ttk.Button(clawg, text='Parar garra', command=self.stop_claw).grid(row=2, column=0, columnspan=2, sticky='nsew', pady=(8, 0))
 
         # Panel de movimiento perpetuo
         perpetuo = ttk.Labelframe(body, text="Movimiento perpetuo")
