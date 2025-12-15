@@ -549,8 +549,8 @@ class LegoGUI:
         self.btn_disconnect = ttk.Button(top, text="Desconectar", command=self.on_disconnect, state='disabled')
         self.btn_disconnect.pack(side='left', padx=(8, 0))
 
-        self.btn_stop_all = ttk.Button(top, text="Parar todo", command=self.stop_all, state='disabled')
-        self.btn_stop_all.pack(side='left', padx=(8, 0))
+        #self.btn_stop_all = ttk.Button(top, text="Parar todo", command=self.stop_all, state='disabled')
+        #Fself.btn_stop_all.pack(side='left', padx=(8, 0))
 
         if GAMEPAD_AVAILABLE:
             self.btn_gamepad = ttk.Button(top, text="Activar mando", command=self.on_toggle_gamepad, state='disabled')
@@ -574,7 +574,7 @@ class LegoGUI:
         # Botones direccionales rápidos (WASD)
         self._mk_hold_button(grid, text='↑\nRápido', key_on='w', row=0, col=1)
         self._mk_hold_button(grid, text='←\nRápido', key_on='a', row=1, col=0)
-        self._mk_hold_button(grid, text='Stop', key_on=None, row=1, col=1, command=self.stop_move)
+        #self._mk_hold_button(grid, text='Stop', key_on=None, row=1, col=1, command=self.stop_move)
         self._mk_hold_button(grid, text='→\nRápido', key_on='d', row=1, col=2)
         self._mk_hold_button(grid, text='↓\nRápido', key_on='s', row=2, col=1)
 
