@@ -18,68 +18,71 @@ Requisitos
 - `keyboard` (para control por teclado; en Windows requiere ejecutar como Admin)
 - `pygame` (para usar un joystick / gamepad)
 
-Posibles Versiones
-----------------------------------
+## Posibles Versiones
 
-- `src/control-claw.py` (principal referencia)
-	- Qué hace: ejemplo de flujo mínimo con `pybricksdev`: busca el hub por BLE,
-		sube un programa pequeño al hub que define los motores y deja abierto un
-		REPL/entrada para recibir comandos por línea.
-	- Entradas: pensado para recibir comandos desde el PC (ej. con `hub.write_line`).
-	- Uso típico: sirve como plantilla para los scripts en `possibleCodes` — garantiza
-		que los motores A, C y E estén inicializados en el contexto del hub.
+El directorio `possibleCodes/` contiene múltiples versiones de control con diferentes funcionalidades:
 
-- `possibleCodes/control-claw-v2.py`
-	- Qué hace: adaptación directa del control por teclado (W/A/S/D, espacio, G, R,
-		ESC) usando listeners de teclado (hooks). Cuando se presiona una tecla se
-		envía inmediatamente la línea de Python correspondiente al hub (por ejemplo
-		`motorA.run(300)`). Al soltar, se envía el `stop` correspondiente.
-	- Entradas: teclado global (requiere `keyboard`, en Windows suele requerir Admin).
-	- Comportamiento: evento-driven, cada pulsación genera una acción instantánea.
-		Es simple y de baja latencia para teclas individuales; menos ideal para
-		mezclar múltiples teclas de forma natural (aunque posible con lógica adicional).
+### Versiones principales:
+- **control-claw-v2.py**: Control básico por teclado con listeners (W/A/S/D, ESC).
+- **control-claw-v3.py**: Control mejorado con soporte para teclas mantenidas y movimientos diagonales.
+- **control-claw-v4.py**: Añade soporte para gamepad/joystick con fallback a teclado.
+- **control-claw-v5.py**: Versión completa con tres modos:
+  - `diagnose`: Diagnóstico de ejes y botones del mando
+  - `interactive-map`: Mapeo interactivo de controles (guarda configuración en JSON)
+  - `run`: Ejecución con configuración guardada
+- **control-claw-v6.py**: Última versión con mejoras en tiempo real
 
-- `possibleCodes/control-claw-v3.py`
-	- Qué hace: mejora el comportamiento de v2 para soportar teclas mantenidas y
-		mezcla de direcciones (diagonales). Mantiene un conjunto `pressed` con
-		las teclas actualmente presionadas y, periódicamente o al cambio, calcula
-		la acción compuesta (ej. adelante + izquierda → velocidad diferencial).
-	- Entradas: teclado global (igual que v2).
-	- Comportamiento: ideal para control tipo 'mantén la tecla para avanzar' —
-		cuando sueltas la tecla principal se envía `stop`. Evita enviar comandos
-		redundantes cuando el estado no cambia.
+### Versiones Pybricks y Thonny:
+- **Control-(Pybricks)-v1.py y v4.py**: Implementaciones usando Pybricks
+- **Control-(Thonny)-v1 a v4.py**: Versiones para entorno Thonny IDE
 
-- `possibleCodes/control-claw-v4.py`
-	- Qué hace: añade soporte para gamepad/joystick usando `pygame`. Si `pygame`
-		no está disponible o no se detecta un mando, hace fallback al control por
-		teclado. Traduce ejes analógicos a velocidades y botones a acciones de garra.
-	- Entradas: joystick (preferido) o teclado (fallback).
-	- Comportamiento: permite control analógico (velocidades proporcionales al
-		eje) y mapeo simple por índices; los ejes suelen necesitar calibración por
-		plataforma, por eso v5 añade utilidades de diagnóstico y mapeo.
+### Recomendaciones:
+- Para pruebas rápidas con teclado: usa `v3`
+- Para gamepad: ejecuta `v5 --mode diagnose` → `v5 --mode interactive-map` → `v5 --mode run`
+- Los índices de ejes/botones varían según el sistema, por eso el mapeo interactivo es importante
 
-- `possibleCodes/control-claw-v5.py`
-	- Qué hace: versión más completa. Añade tres modos:
-		- `diagnose`: imprime en tiempo real valores de ejes y botones para que veas
-			los índices que corresponden a cada entrada del mando.
-		- `interactive-map`: te guía para asignar ejes y botones (por ejemplo, eje
-			de avance/retroceso, eje de giro, botón abrir/cerrar garra) y guarda una
-			configuración JSON en `possibleCodes/control-claw-config.json`.
-		- `run`: usa la configuración guardada (o valores por defecto) para mapear
-			el joystick/teclado a comandos que se envían al hub; incluye reintentos de
-			conexión y parámetros ajustables (velocidad, deadzone, turn_scale, hz).
-	- Entradas: joystick (mapeo configurable) y teclado (fallback).
-	- Comportamiento: recomendado para uso real porque te permite diagnosticar
-		el mando en tu sistema, crear un mapeo persistente y ejecutar con parámetros
-		afinados. También evita enviar comandos idénticos repetidamente y maneja
-		reconexiones al hub.
+---
 
-Notas prácticas
----------------
-- Si sólo quieres probar rápido desde el PC con teclado, empieza por `v3`.
-- Si tienes un gamepad, ejecuta primero `v5 --mode diagnose` para ver índices y
-	luego `v5 --mode interactive-map` para crear la configuración antes de `run`.
-- Recuerda que los índices de ejes/botones cambian entre sistemas y drivers;
-	por eso el mapeo interactivo hace la diferencia.
+## Manual de Usuario
+
+### Introducción
+Dentro de la Minería 4.0 hay un descontento en general por las malas prácticas de seguridad, al ser una minería tradicional, se trabaja de forma obsoleta. La Minería 4.0 está, por esto mismo, en una transición para dejar lo obsoleto hacia algo más tecnológico; la Industria 4.0 mediante diversos cambios, tales como implementar Internet de las cosas (IoT), inteligencia artificial, big data, maquetas y herramientas robóticas todo esto con el fin de alivianar la carga y ser seguro.
+
+### Objetivos
+Otorgar soporte técnico a Mineros, para que ellos no tengan que realizar acciones perjudiciales para su salud, dándoles una alternativa para poder realizar su trabajo de manera eficiente y ética, sin arriesgar su integridad tanto física como mental.
+
+### Requerimientos
+**Equipo necesario:**
+- Equipo Lego Spike Prime
+- Un dispositivo (PC/Notebook) con las siguientes características (mínimo):
+  - 4GB RAM
+  - Intel Celeron
+  - Gráficos integrados
+  - Bluetooth ó apartado USB
+  - Sistema operativo: Windows 10/11 (para mayor compatibilidad)
+  - Resolución gráfica mínima: 680x520
+  - Conexión Bluetooth
+
+### Instrucciones del Sistema
+El presente Manual de Usuario está diseñado para poder guiar a los usuarios del sistema, y dentro del Manual está organizado de acuerdo a una secuencias de pasos para instalar y poder inicializar el sistema:
+
+1. Descargar el sistema
+2. Abrir el programa
+3. Conectar la interfaz con el robot
+4. Operaciones básicas
+
+#### 1. Descargar el sistema
+Para poder descargar todos los archivos necesarios para ingresar al sistema, se deberá ingresar al repositorio oficial del proyecto: https://github.com/danielvflores/lego-spike-claw
+
+Dentro del repositorio GitHub, descargar el código completo del proyecto.
+
+#### 2. Abrir el programa
+*[Sección en desarrollo]*
+
+#### 3. Conectar la interfaz con el robot
+*[Sección en desarrollo]*
+
+#### 4. Operaciones básicas
+*[Sección en desarrollo]*
 
 > 💻 Spike: Garra controlable por Lego Spike, grupo SP-3
