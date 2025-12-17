@@ -72,7 +72,8 @@ El presente Manual de Usuario está diseñado para poder guiar a los usuarios de
 4. Operaciones básicas
 
 #### 1. Descargar el sistema
-Para poder descargar todos los archivos necesarios para ingresar al sistema, se deberá ingresar al repositorio oficial del proyecto: https://github.com/danielvflores/lego-spike-claw
+Para poder descargar todos los archivos necesarios para ingresar al sistema, se deberá ingresar al repositorio oficial del proyecto: https://github.com/danielvflores/lego-spike-claw, ingresar al apartado [Releases](https://github.com/danielvflores/lego-spike-claw/releases/tag/brazorobot) y descargar el ejecutable llamado: [SistemaControlSpike.exe](https://github.com/danielvflores/lego-spike-claw/releases/download/brazorobot/SistemaControlSpike.exe)
+> Al hacer click en el nombre SistemControlSpike.exe en el apartado de arriba se redigirá automaticamente al link y se podrá descargar automáticamente el ejecutable!
 
 Dentro del repositorio GitHub, descargar el código completo del proyecto.
 
