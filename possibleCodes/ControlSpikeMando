@@ -69,6 +69,7 @@ wait(300)
 """
     return program
 
+
 def compute_drive_command(pressed: set) -> str:
     w = 'w' in pressed
     s = 's' in pressed
@@ -99,6 +100,7 @@ def compute_drive_command(pressed: set) -> str:
         return 'derecha'
     return 'stop'
 
+
 async def execute_command(hub: PybricksHubBLE, drive_cmd: str, claw_cmd: str, log_cb=None):
     program = create_program(drive_cmd, claw_cmd)
     with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tf:
@@ -116,6 +118,7 @@ async def execute_command(hub: PybricksHubBLE, drive_cmd: str, claw_cmd: str, lo
             os.unlink(temp_path)
         except Exception:
             pass
+
 
 # -------------------- Worker BLE asíncrono en hilo dedicado --------------------
 
@@ -249,24 +252,10 @@ class BLEWorker:
         if self.loop.is_running() and self.queue is not None:
             self.loop.call_soon_threadsafe(self.queue.put_nowait, 'change')
 
+
 # -------------------- Hilo para leer Gamepad (pygame) --------------------
 
 class GamepadThread:
-    """
-    Mapeo PS4:
-    - L2 (trigger axis) => cerrar garra (set key x True via axis detection)
-    - R2 (trigger axis) => abrir garra
-    - L1 (button index 4) => cerrar garra lento (mapeado a 'm' o 'n')
-    - R1 (button index 5) => abrir garra lento
-    - D-PAD (hat 0) => movimiento lento (i/j/k/l)
-    - Right stick (axes 2/3) => movimiento perpetuo (set_perpetual_drive)
-    - START/OPTIONS (button 9 or 8 depending) => stop garra (set_perpetual_claw('stop'))
-    - Square (button 0 on some mappings, but commonly button 0 is X/A; we try typical mapping and also check others)
-      We use:
-        - btn_square -> cerrar continuo (set_perpetual_claw('cerrar'))
-        - btn_circle -> abrir continuo (set_perpetual_claw('abrir'))
-        - btn_triangle -> detener continuidad (clear_perpetual)
-    """
     def __init__(self, worker: BLEWorker, log_queue: Queue):
         self.worker = worker
         self.log = lambda m: log_queue.put(m)
@@ -310,201 +299,86 @@ class GamepadThread:
                     self.log("Error en pygame.event.pump(), deteniendo lectura de mando.")
                     break
 
-                # Re-detectar joystick si es necesario
-                if self.joystick is None or not getattr(self.joystick, 'get_init', lambda: True)():
+                # Si no hay joystick inicializado, intentamos re-detectar
+                if self.joystick is None:
                     try:
                         if pygame.joystick.get_count() > 0:
                             self.joystick = pygame.joystick.Joystick(0)
                             self.joystick.init()
-                            self.log(f"Mando (re)conectado: {self.joystick.get_name()}")
+                            self.log(f"Mando reconectado: {self.joystick.get_name()}")
                         else:
+                            # Esperar un poco y reintentar
                             pygame.time.wait(200)
                             continue
                     except Exception:
                         pygame.time.wait(200)
                         continue
 
-                # --- LECTURA DE HAT (D-PAD) para movimiento lento (i/j/k/l) ---
-                try:
-                    hatx, haty = self.joystick.get_hat(0)
-                except Exception:
-                    hatx = haty = 0
-
-                # Mapear hat -> i/j/k/l (lento)
-                self.worker.set_key('i', haty == 1)    # up -> adelante lento
-                self.worker.set_key('k', haty == -1)   # down -> atrás lento
-                self.worker.set_key('j', hatx == -1)   # left -> izquierda lento
-                self.worker.set_key('l', hatx == 1)    # right -> derecha lento
-
-                # --- LEFT STICK para WASD rápido (por compatibilidad con teclado/GUI) ---
+                # Lectura de ejes y botones:
+                # Ejes pueden variar según el modelo de mando; este es un mapeo común:
+                # axis 0 = left stick X, axis 1 = left stick Y
+                # axis 2 = right stick X, axis 3 = right stick Y
+                # axis 4 = L2 (o triggers) , axis 5 = R2 (o triggers)
                 try:
                     lx = self.joystick.get_axis(0)
                     ly = self.joystick.get_axis(1)
                 except Exception:
-                    lx = ly = 0.0
+                    lx = 0.0
+                    ly = 0.0
 
-                dead = 0.25
+                dead = 0.3  # deadzone
+
+                # WASD rápido (stick izquierdo)
                 self.worker.set_key('w', ly < -dead)
                 self.worker.set_key('s', ly > dead)
                 self.worker.set_key('a', lx < -dead)
                 self.worker.set_key('d', lx > dead)
 
-                # --- RIGHT STICK para MOVIMIENTO PERPETUO (override) ---
-                # según tu confirmación: no se desactiva automáticamente al volver al centro (respuesta 1 = No)
-                # Así que sólo se cambia el modo perpetuo cuando el stick supera deadzone.
+                # IJKL lento (stick derecho)
                 try:
                     rx = self.joystick.get_axis(2)
                     ry = self.joystick.get_axis(3)
+                    self.worker.set_key('i', ry < -dead)
+                    self.worker.set_key('k', ry > dead)
+                    self.worker.set_key('j', rx < -dead)
+                    self.worker.set_key('l', rx > dead)
                 except Exception:
-                    rx = ry = 0.0
+                    # Si no tiene stick derecho en esos índices, limpiamos
+                    for k in ['i', 'j', 'k', 'l']:
+                        self.worker.set_key(k, False)
 
-                # Determinar dirección perpetua si el stick derecho está inclinado
-                perp_cmd = None
-                if ry < -0.5:
-                    perp_cmd = 'adelante'
-                elif ry > 0.5:
-                    perp_cmd = 'atras'
-                elif rx < -0.5:
-                    perp_cmd = 'izquierda'
-                elif rx > 0.5:
-                    perp_cmd = 'derecha'
-
-                # Si se detecta inclinación, activamos modo perpetuo correspondiente.
-                # Si no se detecta inclinación, NO lo desactivamos (respuesta 1 = No).
-                if perp_cmd is not None:
-                    # Al activar perpetuo, queremos que esto sobrescriba otras entradas (respuesta 3 = Si)
-                    self.worker.set_perpetual_drive(perp_cmd)
-                    # opcional: log
-                    self.log(f"Perpetuo drive activado: {perp_cmd}")
-
-                # --- GATILLOS (L2/R2 asíncronos: axis) y L1/R1 (botones) ---
-                # Intentamos leer triggers por axis (común en muchos mapeos).
-                # L2 -> cerrar garra, R2 -> abrir garra
+                # Gatillos - m/n (posible mapeo en muchos mandos)
                 try:
-                    # Muchos sticks reportan triggers en axis 4/5 o 2/5; intentamos varios
-                    lt = None
-                    rt = None
-                    # comprobar algunos índices plausibles (4,5 y también 2,5)
-                    for idx in (4, 2):
-                        try:
-                            val = self.joystick.get_axis(idx)
-                        except Exception:
-                            val = None
-                        if val is not None:
-                            # guardamos primera lectura válida
-                            if lt is None:
-                                lt = val
-                    for idx in (5, 5):
-                        try:
-                            val = self.joystick.get_axis(idx)
-                        except Exception:
-                            val = None
-                        if val is not None:
-                            if rt is None:
-                                rt = val
-                    # normalizar None -> 0
-                    if lt is None: lt = 0.0
-                    if rt is None: rt = 0.0
+                    lt = self.joystick.get_axis(4)
+                    rt = self.joystick.get_axis(5)
+                    # Algunos mandos tienen gatillos en [-1,1] o [0,1]; normalizamos comprobando umbral
+                    self.worker.set_key('n', (lt > 0.3) or (lt < -0.7))
+                    self.worker.set_key('m', (rt > 0.3) or (rt < -0.7))
                 except Exception:
-                    lt = rt = 0.0
-
-                # Umbral para triggers (analógico)
-                # PS4 a veces da -1..1, a veces 0..1; comprobamos por magnitud
-                trig_thresh = 0.4
-                # L2 -> cerrar (map to 'x' pressed)
-                if lt and (lt > trig_thresh or lt < -trig_thresh):
-                    # activamos cerrar garra (equivalente a presionar botón 'x')
-                    self.worker.set_key('x', True)
-                else:
-                    # no forzamos liberación si usuario mantiene otro input; respetamos pressed state
-                    # pero para mantener comportamiento estable, solo desactivamos si axis no activo
-                    self.worker.set_key('x', False)
-
-                # R2 -> abrir (map to 'z' pressed)
-                if rt and (rt > trig_thresh or rt < -trig_thresh):
-                    self.worker.set_key('z', True)
-                else:
-                    self.worker.set_key('z', False)
-
-                # L1 / R1 normalmente son botones (índices comunes 4 y 5, pero puede variar).
-                try:
-                    btn_l1 = self.joystick.get_button(4)
-                except Exception:
-                    btn_l1 = 0
-                try:
-                    btn_r1 = self.joystick.get_button(5)
-                except Exception:
-                    btn_r1 = 0
-
-                # L1 cerrar lento -> m (cerrar_lento)
-                if btn_l1 == 1:
-                    self.worker.set_key('m', True)
-                    # ensure other slow open key off
-                    self.worker.set_key('n', False)
-                else:
                     self.worker.set_key('m', False)
-
-                # R1 abrir lento -> n
-                if btn_r1 == 1:
-                    self.worker.set_key('n', True)
-                    self.worker.set_key('m', False)
-                else:
                     self.worker.set_key('n', False)
 
-                # --- BOTONES FACE y START/OPTIONS ---
-                # mapeos comunes de botones (puede variar por sistema; se intenta usar el mapeo típico)
+                # Botones: mapeo común (puede variar por plataforma)
                 try:
-                    btn_0 = self.joystick.get_button(0)  # X / Cross (a menudo)
-                    btn_1 = self.joystick.get_button(1)  # Circle (a menudo)
-                    btn_2 = self.joystick.get_button(2)  # Square (a menudo)
-                    btn_3 = self.joystick.get_button(3)  # Triangle (a menudo)
+                    btn_0 = self.joystick.get_button(0)  # A / X
+                    btn_2 = self.joystick.get_button(2)  # X / Square (aprox)
+                    btn_1 = self.joystick.get_button(1)  # B / Circle (a veces)
+                    btn_3 = self.joystick.get_button(3)  # Y / Triangle (a veces)
                 except Exception:
                     btn_0 = btn_1 = btn_2 = btn_3 = 0
 
-                # Interpretación solicitada:
-                # Square (btn_2) => cerrar continuo
-                # Circle (btn_1) => abrir continuo
-                # Triangle (btn_3) => detener continuidad (clear_perpetual for claw)
-                # Start/Options -> stop garra inmediato (we try button index 9 or 8)
-                try:
-                    btn_start = self.joystick.get_button(9)
-                except Exception:
-                    try:
-                        btn_start = self.joystick.get_button(8)
-                    except Exception:
-                        btn_start = 0
+                # Asignaciones: cerrar = btn_0, abrir = btn_3 (ajustable)
+                self.worker.set_key('x', btn_0 == 1)
+                self.worker.set_key('z', btn_3 == 1)
 
-                # Cuadrado -> cerrar continuo
-                if btn_2 == 1:
-                    self.worker.set_perpetual_claw('cerrar')
-                    self.log("Perpetuo garra: cerrar")
-                # Círculo -> abrir continuo
-                if btn_1 == 1:
-                    self.worker.set_perpetual_claw('abrir')
-                    self.log("Perpetuo garra: abrir")
-                # Triángulo -> detener continuidad (garra)
-                if btn_3 == 1:
-                    # detener únicamente la parte de garra perpetua
-                    # implementamos conservadoramente: si hay un perpetual de garra, lo limpiamos.
-                    with self.worker.lock:
-                        self.worker.perpetual['claw'] = None
-                    if self.worker.loop.is_running() and self.worker.queue is not None:
-                        self.worker.loop.call_soon_threadsafe(self.worker.queue.put_nowait, 'change')
-                    self.log("Perpetuo garra detenido (triangle)")
-
-                # START/OPTIONS -> stop garra inmediato (no limpiar pressed per tu respuesta)
-                if btn_start == 1:
-                    # set perpetual claw to 'stop' so runner will send stop command (without clearing pressed)
-                    self.worker.set_perpetual_claw('stop')
-                    self.log("Stop garra inmediato (START)")
-
-                # Small wait to avoid busy loop
+                # Pequeña espera para no saturar CPU
                 pygame.time.wait(30)
 
         except Exception as e:
             self.log(f"Mando desconectado o no disponible: {e}")
         finally:
             self.log("Lectura de mando finalizada.")
+
 
 # -------------------- Interfaz gráfica (Tkinter) --------------------
 
@@ -549,8 +423,8 @@ class LegoGUI:
         self.btn_disconnect = ttk.Button(top, text="Desconectar", command=self.on_disconnect, state='disabled')
         self.btn_disconnect.pack(side='left', padx=(8, 0))
 
-        #self.btn_stop_all = ttk.Button(top, text="Parar todo", command=self.stop_all, state='disabled')
-        #Fself.btn_stop_all.pack(side='left', padx=(8, 0))
+        self.btn_stop_all = ttk.Button(top, text="Parar todo", command=self.stop_all, state='disabled')
+        self.btn_stop_all.pack(side='left', padx=(8, 0))
 
         if GAMEPAD_AVAILABLE:
             self.btn_gamepad = ttk.Button(top, text="Activar mando", command=self.on_toggle_gamepad, state='disabled')
@@ -574,7 +448,7 @@ class LegoGUI:
         # Botones direccionales rápidos (WASD)
         self._mk_hold_button(grid, text='↑\nRápido', key_on='w', row=0, col=1)
         self._mk_hold_button(grid, text='←\nRápido', key_on='a', row=1, col=0)
-        #self._mk_hold_button(grid, text='Stop', key_on=None, row=1, col=1, command=self.stop_move)
+        self._mk_hold_button(grid, text='Stop', key_on=None, row=1, col=1, command=self.stop_move)
         self._mk_hold_button(grid, text='→\nRápido', key_on='d', row=1, col=2)
         self._mk_hold_button(grid, text='↓\nRápido', key_on='s', row=2, col=1)
 
@@ -599,7 +473,7 @@ class LegoGUI:
         self._mk_hold_button(clawg, text='Abrir', key_on='z', row=0, col=1)
         self._mk_hold_button(clawg, text='Cerrar lento', key_on='m', row=1, col=0)
         self._mk_hold_button(clawg, text='Abrir lento', key_on='n', row=1, col=1)
-        #ttk.Button(clawg, text='Parar garra', command=self.stop_claw).grid(row=2, column=0, columnspan=2, sticky='nsew', pady=(8, 0))
+        ttk.Button(clawg, text='Parar garra', command=self.stop_claw).grid(row=2, column=0, columnspan=2, sticky='nsew', pady=(8, 0))
 
         # Panel de movimiento perpetuo
         perpetuo = ttk.Labelframe(body, text="Movimiento perpetuo")
@@ -676,6 +550,8 @@ class LegoGUI:
             self.status.configure(text="Estado: sin conexión")
             self._log("Desconectado.")
 
+
+
     def on_toggle_gamepad(self):
         if not GAMEPAD_AVAILABLE:
             return
@@ -692,12 +568,9 @@ class LegoGUI:
         # No interfiere con modo perpetuo; usa stop_perpetuo para detener continuo.
 
     def stop_claw(self):
-        # En GUI, parar garra limpia los keys de garra (porque es una acción manual)
         for k in ['x', 'z', 'm', 'n']:
             self.worker.set_key(k, False)
-        # También pedimos un stop inmediato (sin alterar otros perpetuos)
-        self.worker.set_perpetual_claw('stop')
-        self._log('Garra parada')
+        # No interfiere con modo perpetuo; usa stop_perpetuo para detener continuo.
 
     def stop_perpetuo(self):
         self.worker.clear_perpetual()
@@ -719,10 +592,12 @@ class LegoGUI:
             pass
         self.root.after(150, self._poll_logs)
 
+
 def main():
     root = tk.Tk()
     app = LegoGUI(root)
     root.mainloop()
+
 
 if __name__ == '__main__':
     main()
