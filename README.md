@@ -4,42 +4,12 @@ Control remoto por teclado o mando para un robot construido con LEGO SPIKE Prime
 y Pybricks. Este repositorio contiene varias versiones de herramientas de control
 por Bluetooth (pybricksdev).
 
-Contenido relevante
-- `src/control-claw.py` — versión principal que usa `pybricksdev` y `keyboard`.
-- `possibleCodes/control-claw-v2.py` — control básico por teclado (hooks).
-- `possibleCodes/control-claw-v3.py` — control por estado (teclas mantenidas, diagonales).
-- `possibleCodes/control-claw-v4.py` — añade soporte para mando (pygame) + fallback.
-- `possibleCodes/control-claw-v5.py` — diagnóstico interactivo de joystick, mapeo configurable y modo `run` que usa la configuración guardada.
-
 Requisitos
 ----------
 - Python 3.9+ (óptimo 3.12)
 - pybricksdev
 - `keyboard` (para control por teclado; en Windows requiere ejecutar como Admin)
 - `pygame` (para usar un joystick / gamepad)
-
-## Posibles Versiones
-
-El directorio `possibleCodes/` contiene múltiples versiones de control con diferentes funcionalidades:
-
-### Versiones principales:
-- **control-claw-v2.py**: Control básico por teclado con listeners (W/A/S/D, ESC).
-- **control-claw-v3.py**: Control mejorado con soporte para teclas mantenidas y movimientos diagonales.
-- **control-claw-v4.py**: Añade soporte para gamepad/joystick con fallback a teclado.
-- **control-claw-v5.py**: Versión completa con tres modos:
-  - `diagnose`: Diagnóstico de ejes y botones del mando
-  - `interactive-map`: Mapeo interactivo de controles (guarda configuración en JSON)
-  - `run`: Ejecución con configuración guardada
-- **control-claw-v6.py**: Última versión con mejoras en tiempo real
-
-### Versiones Pybricks y Thonny:
-- **Control-(Pybricks)-v1.py y v4.py**: Implementaciones usando Pybricks
-- **Control-(Thonny)-v1 a v4.py**: Versiones para entorno Thonny IDE
-
-### Recomendaciones:
-- Para pruebas rápidas con teclado: usa `v3`
-- Para gamepad: ejecuta `v5 --mode diagnose` → `v5 --mode interactive-map` → `v5 --mode run`
-- Los índices de ejes/botones varían según el sistema, por eso el mapeo interactivo es importante
 
 ---
 
