@@ -35,15 +35,41 @@ hiddenimports = [
     'threading',
 ]
 
+import os
+import sys
+
+# Rutas a los paquetes mpy-cross completos - relativo al directorio donde está el .spec
+spec_root = os.path.dirname(os.path.abspath(SPECPATH))
+venv_path = os.path.join(spec_root, 'SpikeLego', 'Lib', 'site-packages')
+mpy_cross_v5_dir = os.path.join(venv_path, 'mpy_cross_v5')
+mpy_cross_v6_dir = os.path.join(venv_path, 'mpy_cross_v6')
+
+# Lista de datas para incluir directorios completos de mpy-cross
+datas_list = []
+if os.path.exists(mpy_cross_v5_dir):
+    datas_list.append((mpy_cross_v5_dir, 'mpy_cross_v5'))
+    print(f"✓ Incluyendo mpy_cross_v5 desde: {mpy_cross_v5_dir}")
+else:
+    print(f"✗ No encontrado: {mpy_cross_v5_dir}")
+
+if os.path.exists(mpy_cross_v6_dir):
+    datas_list.append((mpy_cross_v6_dir, 'mpy_cross_v6'))
+    print(f"✓ Incluyendo mpy_cross_v6 desde: {mpy_cross_v6_dir}")
+else:
+    print(f"✗ No encontrado: {mpy_cross_v6_dir}")
+
+# Ruta al runtime hook
+runtime_hook_path = os.path.join(os.getcwd(), 'src', 'pyi_rth_mpy_cross.py')
+
 a = Analysis(
     ['SistemaControlSpike.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=datas_list,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[runtime_hook_path] if os.path.exists(runtime_hook_path) else [],
     excludes=[],
     noarchive=False,
     optimize=0,

@@ -6,8 +6,49 @@ import asyncio
 import threading
 import tempfile
 import os
+import sys
 from queue import Queue, Empty
 from typing import Optional
+
+# Configurar PATH para mpy-cross cuando está empaquetado
+_MPY_SETUP_LOG = []
+if getattr(sys, 'frozen', False):
+    base_path = sys._MEIPASS
+    import shutil
+    
+    _MPY_SETUP_LOG.append(f"Ejecutable empaquetado detectado. Base: {base_path}")
+    
+    # Crear directorios temporales para mpy-cross manteniendo la estructura
+    temp_base = os.path.join(tempfile.gettempdir(), 'spike_mpy_temp')
+    
+    # Copiar ejecutables mpy-cross manteniendo la estructura de directorios
+    for mpy_dir in ['mpy_cross_v5', 'mpy_cross_v6']:
+        mpy_path_src = os.path.join(base_path, mpy_dir)
+        _MPY_SETUP_LOG.append(f"Buscando: {mpy_path_src}")
+        
+        if os.path.exists(mpy_path_src):
+            mpy_exe_src = os.path.join(mpy_path_src, 'mpy-cross.exe')
+            _MPY_SETUP_LOG.append(f"Directorio encontrado, buscando exe: {mpy_exe_src}")
+            
+            if os.path.exists(mpy_exe_src):
+                # Crear directorio destino
+                mpy_path_dst = os.path.join(temp_base, mpy_dir)
+                os.makedirs(mpy_path_dst, exist_ok=True)
+                
+                # Copiar ejecutable con el nombre correcto
+                mpy_exe_dst = os.path.join(mpy_path_dst, 'mpy-cross.exe')
+                try:
+                    shutil.copy2(mpy_exe_src, mpy_exe_dst)
+                    _MPY_SETUP_LOG.append(f"Copiado a: {mpy_exe_dst}")
+                    # Agregar este directorio al PATH
+                    os.environ['PATH'] = mpy_path_dst + os.pathsep + os.environ.get('PATH', '')
+                    _MPY_SETUP_LOG.append(f"PATH actualizado con: {mpy_path_dst}")
+                except Exception as e:
+                    _MPY_SETUP_LOG.append(f"Error copiando: {e}")
+            else:
+                _MPY_SETUP_LOG.append(f"Exe NO encontrado")
+        else:
+            _MPY_SETUP_LOG.append(f"Directorio NO existe")
 
 import tkinter as tk
 from tkinter import ttk
@@ -101,19 +142,35 @@ def compute_drive_command(pressed: set) -> str:
 
 async def execute_command(hub: PybricksHubBLE, drive_cmd: str, claw_cmd: str, log_cb=None):
     program = create_program(drive_cmd, claw_cmd)
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False, encoding='utf-8') as tf:
-        tf.write(program)
-        temp_path = tf.name
+    
+    # Usar directorio temporal del sistema
+    temp_dir = tempfile.gettempdir()
+    temp_path = os.path.join(temp_dir, f'spike_program_{id(program)}.py')
+    
     try:
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            f.write(program)
+        
+        # Verificar PATH si está empaquetado (para debug)
+        if getattr(sys, 'frozen', False) and log_cb:
+            path_dirs = os.environ.get('PATH', '').split(os.pathsep)
+            mpy_found = any('mpy' in d.lower() for d in path_dirs)
+            if not mpy_found:
+                log_cb("Advertencia: mpy-cross no encontrado en PATH")
+        
         await hub.run(temp_path, wait=True, print_output=False)
         if log_cb:
             log_cb(f"Ejecutado: drive={drive_cmd}, claw={claw_cmd}")
+    except FileNotFoundError as e:
+        if log_cb:
+            log_cb(f"Error: No se encuentra mpy-cross.exe. PATH: {os.environ.get('PATH', '')[:200]}")
     except Exception as e:
         if log_cb:
             log_cb(f"Error ejecutando comandos: {e}")
     finally:
         try:
-            os.unlink(temp_path)
+            if os.path.exists(temp_path):
+                os.unlink(temp_path)
         except Exception:
             pass
 
@@ -650,13 +707,18 @@ class LegoGUI:
     def on_connect(self):
         self.status.configure(text="Estado: conectando…")
         self._log("Conectando…")
+        
+        # Mostrar log de configuración de mpy-cross si está empaquetado
+        if getattr(sys, 'frozen', False) and _MPY_SETUP_LOG:
+            for msg in _MPY_SETUP_LOG:
+                self._log(f"[Setup] {msg}")
+        
         self.worker.start()
         def check_ready():
             if self.worker.running.is_set():
                 self.status.configure(text="Estado: conectado")
                 self.btn_connect.configure(state='disabled')
                 self.btn_disconnect.configure(state='normal')
-                self.btn_stop_all.configure(state='normal')
                 if self.btn_gamepad is not None:
                     self.btn_gamepad.configure(state='normal')
             else:
@@ -670,7 +732,6 @@ class LegoGUI:
         finally:
             self.btn_connect.configure(state='normal')
             self.btn_disconnect.configure(state='disabled')
-            self.btn_stop_all.configure(state='disabled')
             if self.btn_gamepad is not None:
                 self.btn_gamepad.configure(state='disabled', text='Activar mando')
             self.status.configure(text="Estado: sin conexión")
