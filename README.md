@@ -57,7 +57,7 @@ Para poder descargar todos los archivos necesarios para ingresar al sistema, se 
 
 #### 2. Abrir el programa
 
-Para iniciar el programa, debemos
+![Abrir el programa](assets/video_demo.gif)
 
 #### 3. Conectar la interfaz con el robot
 
