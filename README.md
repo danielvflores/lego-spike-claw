@@ -53,7 +53,7 @@ Para poder descargar todos los archivos necesarios para ingresar al sistema, se 
 
 
 
-https://i.imgur.com/e9MvcyO.gif
+![Descarga del sistema](https://i.imgur.com/e9MvcyO.gif)
 
 
 
