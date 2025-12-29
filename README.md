@@ -61,10 +61,18 @@ Para poder descargar todos los archivos necesarios para ingresar al sistema, se 
 
 #### 3. Conectar la interfaz con el robot
 
-*[Sección en desarrollo]*
+Para conectar la interfaz con el robot LEGO Spike, primero asegúrate de que el hub esté encendido y en modo Bluetooth. Luego, en la ventana principal del programa, haz clic en el botón **Conectar**. El sistema buscará automáticamente el hub disponible mediante Bluetooth y, una vez encontrado, establecerá la conexión. Cuando la conexión sea exitosa, el estado cambiará a "conectado" y podrás comenzar a controlar el robot desde la interfaz.
+
+> Si tienes un mando compatible y deseas usarlo, puedes activar el control por mando haciendo clic en **Activar mando** después de conectar el robot.
 
 #### 4. Operaciones básicas
 
-*[Sección en desarrollo]*
+Una vez conectado el robot, puedes realizar las siguientes operaciones desde la interfaz gráfica:
+
+- **Mover el robot:** Usa los botones de dirección (rápido o lento) para avanzar, retroceder o girar el robot. También puedes utilizar un mando compatible para controlar el movimiento.
+- **Controlar la garra:** Utiliza los botones de la sección "Garra" para abrir, cerrar, abrir lento o cerrar lento la garra del robot. El botón "Parar garra" detiene cualquier acción en curso de la garra.
+- **Movimiento perpetuo:** En la sección "Movimiento perpetuo" puedes activar movimientos continuos del robot o la garra, y detenerlos cuando lo desees.
+
+> Todas las acciones realizadas se mostrarán en el registro de la parte inferior de la ventana, donde podrás ver el estado de la conexión y los comandos enviados al robot.
 
 > 💻 Spike: Garra controlable por Lego Spike, grupo SP-3
